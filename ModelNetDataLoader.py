@@ -83,8 +83,6 @@ class ModelNetDataLoader(Dataset):
 
         shape_ids = {}
         if self.num_category == 10:
-            # shape_ids['train'] = [line.rstrip() for line in open(os.path.join(self.root, 'modelnet10_train.txt'))]
-            # shape_ids['test'] = [line.rstrip() for line in open(os.path.join(self.root, 'modelnet10_test.txt'))]
             shape_ids['train'] = [line.rstrip() for line in open(os.path.join(self.root, 'modelnet10_train.txt'))]
             shape_ids['test'] = [line.rstrip() for line in open(os.path.join(self.root, 'modelnet10_test.txt'))]
         else:
@@ -106,62 +104,19 @@ class ModelNetDataLoader(Dataset):
         else:
             self.save_path = os.path.join(root, 'modelnet%d_%s_%dpts.dat' % (self.num_category, split, self.npoints))
 
-        if self.process_data:
-            if not os.path.exists(self.save_path):
-                print('Processing data %s (only running in the first time)...' % self.save_path)
-                self.list_of_points = [None] * len(self.datapath)
-                self.list_of_labels = [None] * len(self.datapath)
-
-                for index in tqdm(range(len(self.datapath)), total=len(self.datapath)):
-                    fn = self.datapath[index]
-                    cls = self.classes[self.datapath[index][0]]
-                    cls = np.array([cls]).astype(np.int32)
-                    point_set = np.loadtxt(fn[1], delimiter=',').astype(np.float32)
-
-                    if self.uniform:
-                        point_set = farthest_point_sample(point_set, self.npoints)
-                    else:
-                        point_set = point_set[0:self.npoints, :]
-
-                    self.list_of_points[index] = point_set
-                    self.list_of_labels[index] = cls
-
-                with open(self.save_path, 'wb') as f:
-                    pickle.dump([self.list_of_points, self.list_of_labels], f)
-            else:
-                print('Load processed data from %s...' % self.save_path)
-                with open(self.save_path, 'rb') as f:
-                    self.list_of_points, self.list_of_labels = pickle.load(f)
+        
 
     def __len__(self):
         return len(self.datapath)
 
     def _get_item(self, index):
-        image = None
-        if self.process_data:
-            point_set, label = self.list_of_points[index], self.list_of_labels[index]
-        else:
-            fn = self.datapath[index]
-            img_pth = self.datapath_img[index]
-            cls = self.classes[self.datapath[index][0]]
-            label = np.array([cls]).astype(np.int32)
-            point_set = np.loadtxt(fn[1], delimiter=',').astype(np.float32)
-            image = Image.open(img_pth[1]).convert('RGB')
-            image = image_transform(self.cfg,image)
-            if self.uniform:
-                point_set = farthest_point_sample(point_set, self.npoints)
-            else:
-                point_set = point_set[0:self.npoints, :]
-                
-        point_set[:, 0:3] = pc_normalize(point_set[:, 0:3])
-        if not self.use_normals:
-            point_set = point_set[:, 0:3]
-
-
+        img_pth = self.datapath_img[index]
+        cls = self.classes[self.datapath[index][0]]
+        label = np.array([cls]).astype(np.int32)
+        image = Image.open(img_pth[1]).convert('RGB')
+        image = image_transform(self.cfg,image)
         
-        
-
-        return point_set, label[0], image
+        return image,label[0]
 
     def __getitem__(self, index):
         return self._get_item(index)

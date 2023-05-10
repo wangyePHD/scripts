@@ -282,9 +282,23 @@ def load_one_gpu_model(model,path):
     model = model.to(device)
     return model
 
+def load_textembedding(cfg):    
+    text_latents = np.loadtxt(cfg.data.text_embedding).astype(np.float32)
+    text_latents = torch.from_numpy(text_latents)
+    
+    text_list = []
+    for i in range(len(cfg.train.gpus)):
+        text_list.append(text_latents)
+    text = torch.concat(text_list,dim=0)
+    return text
+
+
 if __name__ == '__main__':
 
-    text_to_embedding()
+    # text_to_embedding()
+    text_latents = np.loadtxt("/root/autodl-tmp/Code/scripts/class_embedding.txt").astype(np.float32)
+    text_latents = torch.from_numpy(text_latents)
+    print(text_latents.shape)
 
 
 

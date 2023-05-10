@@ -45,10 +45,10 @@ def get_default_config():
     cfg.train.flag = True #! train (True) or test (False)
     cfg.train.random_seed = 2023
     cfg.train.optim = 'adam'
-    cfg.train.epoch = 200
+    cfg.train.epoch = 50
     cfg.train.batch_size = 12
     cfg.train.lr_scheduler = ''
-    cfg.train.use_multi_gpus = True
+    cfg.train.use_multi_gpus = False
     cfg.train.gpus = [0,1]
     cfg.train.device = 'cuda'
    
@@ -67,10 +67,11 @@ def get_default_config():
     
     cfg.schedule = CN()
     cfg.schedule.name = 'cosine'
+    cfg.schedule.min_lr = 1e-5
     cfg.schedule.warmup_epoch = 5
-    cfg.schedule.warmup_type = 'constant'
+    cfg.schedule.warmup_type = 'linear'
     cfg.schedule.warmup_cons_lr = 1e-5
-    cfg.schedule.warmup_min_lr = 1e-4
+    cfg.schedule.warmup_min_lr = 1e-5
     
     # loss
     cfg.loss = CN()
@@ -81,7 +82,7 @@ def get_default_config():
     
     # test
     cfg.test = CN()
-    cfg.test.batch_size = ''
+    cfg.test.batch_size = 6
     
 
     

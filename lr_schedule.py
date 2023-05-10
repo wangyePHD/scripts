@@ -101,7 +101,7 @@ def build_lr_scheduler(optimizer, cfg):
 
     if lr_scheduler == "cosine":
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, float(max_epoch)
+            optimizer, float(max_epoch),eta_min=cfg.schedule.min_lr
         )
     # TODO add more scheduler settings
 

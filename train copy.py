@@ -41,20 +41,29 @@ def process_points(points):
     points = points.transpose(2, 1)
     return points
 
-def forward_backward(cfg, target, image,model,optimizer,cls_loss,scaler,text):
+def forward_backward(cfg,points, target, image,model,optimizer,cls_loss,infonce_loss,scaler,text):
     #* process data
     device = torch.device(cfg.train.device)
+    points = process_points(points)
+    points = points.to(device)
     target = target.to(device)
     image  = image.to(device)
     text   = text.to(device)
+    
+
+    
 
     with autocast():
         #* model forward and calculate loss
-        sd_outs_filtering = model(image,text)
+        sd_outs_filtering = model(points,image,text)
         classification_loss = cls_loss(sd_outs_filtering,target.long())
-        
+        # classification_loss = cls_loss(cls_output,target.long())
+        # contrastive_loss = infonce_loss(sd_outs_filtering,point_feats)
+        # TODO add weight control
+    # loss = classification_loss + cfg.loss.infonce_weight * contrastive_loss
     loss = classification_loss
     
+
     #* model backward and update
     optimizer.zero_grad()
     scaler.scale(loss).backward()
@@ -62,22 +71,26 @@ def forward_backward(cfg, target, image,model,optimizer,cls_loss,scaler,text):
     scaler.update()
     
     loss_summary = {
-        'cls_loss': classification_loss.item()
+        'cls_loss': classification_loss.item(),
+        # 'nce_loss': contrastive_loss.item() * cfg.loss.infonce_weight
     }
     
     return loss_summary,sd_outs_filtering
     
     
 @torch.no_grad()
-def model_inferrence(cfg, target, image, model, cls_loss, text):
+def model_inferrence(cfg,points, target, image,model,optimizer,cls_loss,infonce_loss,text):
     #* process data
     device = torch.device(cfg.train.device)
+    points = process_points(points)
+    points = points.to(device)
     target = target.to(device)
     image  = image.to(device)
     text   = text.to(device)
         
     #* model forward and calculate loss
-    cls_output = model(image,text)
+    
+    cls_output = model(points,image,text)
     classification_loss = cls_loss(cls_output,target.long())
         
     loss_summary = {
@@ -94,22 +107,23 @@ def get_current_lr(optimizer):
     
     
 
-def run_epoch(cfg, model, train_loader, optimizer, scheduler, epoch ,cls_loss,scaler,text):
+def run_epoch(cfg, model, train_loader, optimizer, scheduler, epoch ,cls_loss,infonce_loss,scaler,text):
     
     logger.info("set the model mode as train")
     set_model_mode(flag='train',model=model)
     
     loss_summary = MetricMeter()
     ins_accuracy_meter = AverageMeter()
+    class_accuracy_meter = AverageMeter()
     batch_time = AverageMeter()
     num_batches = len(train_loader)
     class_acc = np.zeros((cfg.data.pc_num_category, 3))
     
     for batch_idx, batch in enumerate(train_loader):
         
-        image, target = batch
+        points, target, image = batch
         batch_start_time = time.time()
-        loss,pred = forward_backward(cfg,target,image,model,optimizer,cls_loss,scaler,text)
+        loss,pred = forward_backward(cfg,points,target,image,model,optimizer,cls_loss,infonce_loss,scaler,text)
         batch_end_time = time.time()
         batch_cost = batch_end_time - batch_start_time
         batch_time.update(batch_cost)
@@ -124,14 +138,14 @@ def run_epoch(cfg, model, train_loader, optimizer, scheduler, epoch ,cls_loss,sc
         pred_choice = pred.cpu().data.max(1)[1]
         target = target.cpu()
         correct = pred_choice.eq(target.long().data).cpu().sum()
-        accuracy = correct.item() / float(image.size()[0])
+        accuracy = correct.item() / float(points.size()[0])
         ins_accuracy_meter.update(accuracy)
         
         #* calculate class accuracy 
         
         for cat in np.unique(target.cpu()):
             classacc = pred_choice[target == cat].eq(target[target == cat].long().data).cpu().sum()
-            class_acc[cat, 0] += classacc.item() / float(image[target == cat].size()[0])
+            class_acc[cat, 0] += classacc.item() / float(points[target == cat].size()[0])
             class_acc[cat, 1] += 1
     
         logger.info(
@@ -172,7 +186,7 @@ def run_epoch(cfg, model, train_loader, optimizer, scheduler, epoch ,cls_loss,sc
     
         
         
-def test_after_epoch(cfg, model, test_loader,optimizer, epoch,cls_loss,text):
+def test_after_epoch(cfg, model, test_loader, optimizer, scheduler, epoch,cls_loss,infonce_loss,text):
     
     logger.info("set the model mode as test")
     set_model_mode(flag='test',model=model)
@@ -186,9 +200,9 @@ def test_after_epoch(cfg, model, test_loader,optimizer, epoch,cls_loss,text):
     
     for batch_idx, batch in enumerate(test_loader):
         
-        image,target = batch
+        points, target, image = batch
         batch_start_time = time.time()
-        loss,pred = model_inferrence(cfg,target,image,model,cls_loss,text)
+        loss,pred = model_inferrence(cfg,points,target,image,model,optimizer,cls_loss,infonce_loss,text)
         batch_end_time = time.time()
         batch_cost = batch_end_time - batch_start_time
         batch_time.update(batch_cost)
@@ -203,21 +217,21 @@ def test_after_epoch(cfg, model, test_loader,optimizer, epoch,cls_loss,text):
         pred_choice = pred.cpu().data.max(1)[1]
         target = target.cpu()
         correct = pred_choice.eq(target.long().data).cpu().sum()
-        accuracy = correct.item() / float(image.size()[0])
+        accuracy = correct.item() / float(points.size()[0])
         ins_accuracy_meter.update(accuracy)
         
         #* calculate class accuracy 
         
         for cat in np.unique(target.cpu()):
             classacc = pred_choice[target == cat].eq(target[target == cat].long().data).cpu().sum()
-            class_acc[cat, 0] += classacc.item() / float(image[target == cat].size()[0])
+            class_acc[cat, 0] += classacc.item() / float(points[target == cat].size()[0])
             class_acc[cat, 1] += 1
         
         
         
         
         logger.info(
-            'epoch [{0}/{1}][{2}/{3}] time {batch_time.val:.3f} ({batch_time.avg:.3f}) eta {eta}  {losses} Accuracy {accuracy_meter.val:.4f} ({accuracy_meter.avg:.4f})  lr {lr:.5f}', 
+            'epoch [{0}/{1}][{2}/{3}] time {batch_time.val:.3f} ({batch_time.avg:.3f}) eta {eta}  {losses} Accuracy {accuracy_meter.val:.4f} ({accuracy_meter.avg:.4f})  lr {lr:.3f}', 
             epoch + 1,
             cfg.train.epoch,
             batch_idx + 1,
@@ -289,7 +303,7 @@ def main():
     train_dataset = ModelNetDataLoader(root=cfg.data.pc_train_path,root_img=cfg.data.img_path,cfg=cfg,split='train',process_data=cfg.data.pc_process_data)
     test_dataset  = ModelNetDataLoader(root=cfg.data.pc_test_path, root_img=cfg.data.img_path,cfg=cfg,split='test', process_data=cfg.data.pc_process_data)
     train_dataloader = torch.utils.data.DataLoader(train_dataset, cfg.train.batch_size, shuffle=True,  num_workers=10, drop_last=True)
-    test_dataloader  = torch.utils.data.DataLoader(test_dataset,  cfg.test.batch_size, shuffle=False, num_workers=10)
+    test_dataloader  = torch.utils.data.DataLoader(test_dataset,  cfg.train.batch_size, shuffle=False, num_workers=10)
     logger.info("The train dataset length is {}",train_dataset.__len__())
     logger.info("The test dataset length is {}",test_dataset.__len__())
     logger.info("The train dataloader contain {} batch, batch size is {}",len(train_dataloader),cfg.train.batch_size)
@@ -310,6 +324,7 @@ def main():
     
     #* define loss function
     cls_loss = Classification_Loss()
+    infonce_loss = InfoNCE_Loss(cfg=cfg)
     
     #* define optimizer
     logger.info("Build optimizer {}, record optimizer params", cfg.train.optim)
@@ -326,8 +341,9 @@ def main():
     logger.info("The current results output dir is {}",sub_outputs_dir)
     
     #* init tensorboard writer for train and test
-    summary_writer = init_writer(exp_output_dir=tensorboard_path,flag='train')
-   
+    train_writer = init_writer(exp_output_dir=tensorboard_path,flag='train')
+    test_writer = init_writer(exp_output_dir=tensorboard_path,flag='test')
+    
     #* define a GradScaler 
     scaler = GradScaler()
 
@@ -338,18 +354,20 @@ def main():
 
     #* load text embedding
     text_embeddings = load_textembedding(cfg=cfg)
-    #* training
     for epoch in range(0,cfg.train.epoch):
-        train_results = run_epoch(cfg=cfg,model=model,train_loader=train_dataloader,optimizer=optimizer,scheduler=scheduler,epoch=epoch,cls_loss=cls_loss,scaler=scaler,text=text_embeddings)
-        test_results = test_after_epoch(cfg=cfg,model=model,test_loader=test_dataloader,epoch=epoch,cls_loss=cls_loss,text=text_embeddings,optimizer=optimizer)
+        train_results = run_epoch(cfg=cfg,model=model,train_loader=train_dataloader,optimizer=optimizer,scheduler=scheduler,epoch=epoch,cls_loss=cls_loss,infonce_loss=infonce_loss,scaler=scaler,text=text_embeddings)
+        test_results = test_after_epoch(cfg=cfg,model=model,test_loader=test_dataloader,optimizer=optimizer,scheduler=scheduler,epoch=epoch,cls_loss=cls_loss,infonce_loss=infonce_loss,text=text_embeddings)
         train_avg_ins_acc, train_avg_class_acc,train_cls_loss_avg,train_infonce_loss_avg = train_results
         test_avg_ins_acc, test_avg_class_acc,test_cls_loss_avg,test_infonce_loss_avg = test_results
         
         #* tensorboard save information
-        summary_writer.add_scalars('ins_acc',{'train':train_avg_ins_acc,"test":test_avg_ins_acc},epoch)
-        summary_writer.add_scalars('class_acc',{'train':train_avg_class_acc,"test":test_avg_class_acc},epoch)
-        summary_writer.add_scalars('cls_loss',{'train':train_cls_loss_avg,'test':test_cls_loss_avg},epoch)
-        
+        train_writer.add_scalar('train_avg_ins_acc',train_avg_ins_acc,epoch)
+        train_writer.add_scalar('train_avg_class_acc',train_avg_class_acc,epoch)
+        train_writer.add_scalar('train_cls_loss_avg',train_cls_loss_avg,epoch)
+        train_writer.add_scalar('train_infonce_loss_avg',train_infonce_loss_avg,epoch)
+        test_writer.add_scalar('test_avg_ins_acc',test_avg_ins_acc,epoch)
+        test_writer.add_scalar('test_avg_class_acc',test_avg_class_acc,epoch)
+        test_writer.add_scalar('test_cls_loss_avg',test_cls_loss_avg,epoch)
         
         if (test_avg_ins_acc >= best_instance_acc):
                 best_instance_acc = test_avg_ins_acc
