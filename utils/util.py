@@ -9,10 +9,10 @@ import shutil
 import glob
 
 import sys
-sys.path.append('/root/autodl-tmp/Code/stable_diffusion')
-sys.path.append('/root/autodl-tmp/Code/stable_diffusion/taming-transformers')
-sys.path.append('/root/autodl-tmp/Code/checkpoints/Pointnet_Pointnet2_pytorch')
-sys.path.append('/root/autodl-tmp/Code/scripts')
+sys.path.append('/home/wangye/Code/3D_SD_knowledge_base/Code/stable_diffusion')
+sys.path.append('/home/wangye/Code/3D_SD_knowledge_base/Code/stable_diffusion/taming-transformers')
+sys.path.append('/home/wangye/Code/3D_SD_knowledge_base/backbones/Pointnet_Pointnet2_pytorch')
+sys.path.append('/home/wangye/Code/3D_SD_knowledge_base/Code/scripts')
 from omegaconf import  OmegaConf
 from ldm.util import instantiate_from_config
 from transformers import CLIPTokenizer
